@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:0;background:#0f0f1a;font-family:sans-serif;}
+#ui{display:flex;gap:8px;padding:12px;flex-wrap:wrap;}
+button{padding:7px 18px;border:1px solid #444;border-radius:8px;font-size:14px;cursor:pointer;background:#1e1e30;color:#ccc;}
+button.on{background:#4a90d9;color:#fff;border-color:#4a90d9;}
+canvas{display:block;margin:0 auto;}
+#info{display:flex;gap:8px;padding:8px 12px;flex-wrap:wrap;}
+.ic{background:#1e1e30;border-radius:8px;padding:8px 14px;border:1px solid #333;}
+.il{font-size:11px;color:#888;margin-bottom:2px;}
+.iv{font-size:14px;font-weight:600;color:#eee;}
+#hint{font-size:12px;color:#555;padding:0 12px 8px;}
+#legend{display:flex;gap:16px;padding:0 12px 10px;align-items:center;}
+.li{display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;}
+.ld{width:13px;height:13px;border-radius:50%;}
+</style>
+</head>
+<body>
+<div id="ui">
+  <button class="on" onclick="setPhase('anatase',this)">Anatase</button>
+  <button onclick="setPhase('rutile',this)">Rutile</button>
+  <button onclick="setPhase('brookite',this)">Brookite</button>
+</div>
+<canvas id="c" width="600" height="400"></canvas>
+<div id="hint">Cliquer-glisser pour tourner</div>
+<div id="legend">
+  <div class="li"><div class="ld" style="background:#6ab0f5;"></div>Ti⁴⁺</div>
+  <div class="li"><div class="ld" style="background:#f5705a;"></div>O²⁻</div>
+</div>
+<div id="info"></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const PHASES = {
+  anatase: {
+    label:'Anatase', sys:'Quadratique', grp:'I4₁/amd', gap:'3.2 eV', bc:'–0.5 V',
+    atoms:[
+      {t:'Ti',x:0,y:0,z:0},{t:'Ti',x:0,y:1,z:.5},{t:'Ti',x:1,y:0,z:.5},{t:'Ti',x:1,y:1,z:0},
+      {t:'Ti',x:.5,y:.5,z:.25},{t:'Ti',x:.5,y:.5,z:.75},
+      {t:'O',x:.5,y:0,z:.08},{t:'O',x:.5,y:0,z:.42},{t:'O',x:0,y:.5,z:.58},{t:'O',x:0,y:.5,z:.92},
+      {t:'O',x:.5,y:1,z:.08},{t:'O',x:.5,y:1,z:.42},{t:'O',x:1,y:.5,z:.58},{t:'O',x:1,y:.5,z:.92},
+      {t:'O',x:0,y:0,z:.5},{t:'O',x:1,y:1,z:.5},{t:'O',x:0,y:1,z:0},{t:'O',x:1,y:0,z:0},
+    ],
+    sx:1.4,sy:1.4,sz:2.2
+  },
+  rutile: {
+    label:'Rutile', sys:'Quadratique', grp:'P4₂/mnm', gap:'3.0 eV', bc:'–0.3 V',
+    atoms:[
+      {t:'Ti',x:0,y:0,z:0},{t:'Ti',x:1,y:0,z:0},{t:'Ti',x:0,y:1,z:0},{t:'Ti',x:1,y:1,z:0},
+      {t:'Ti',x:.5,y:.5,z:.5},
+      {t:'O',x:.3,y:.3,z:0},{t:'O',x:.7,y:.7,z:0},{t:'O',x:.7,y:.3,z:0},{t:'O',x:.3,y:.7,z:0},
+      {t:'O',x:1.3,y:.3,z:0},{t:'O',x:.3,y:1.3,z:0},
+      {t:'O',x:.8,y:.8,z:.5},{t:'O',x:.2,y:.2,z:.5},{t:'O',x:.8,y:.2,z:.5},{t:'O',x:.2,y:.8,z:.5},
+    ],
+    sx:1.6,sy:1.6,sz:1.0
+  },
+  brookite: {
+    label:'Brookite', sys:'Orthorhombique', grp:'Pbca', gap:'3.3 eV', bc:'–0.5 à –0.6 V',
+    atoms:[
+      {t:'Ti',x:.13,y:.1,z:.86},{t:'Ti',x:.63,y:.4,z:.14},{t:'Ti',x:.37,y:.6,z:.64},{t:'Ti',x:.87,y:.9,z:.36},
+      {t:'Ti',x:.13,y:.6,z:.36},{t:'Ti',x:.63,y:.1,z:.64},{t:'Ti',x:.37,y:.9,z:.86},{t:'Ti',x:.87,y:.4,z:.14},
+      {t:'O',x:.01,y:.15,z:.18},{t:'O',x:.24,y:.11,z:.72},{t:'O',x:.49,y:.15,z:.32},{t:'O',x:.74,y:.11,z:.78},
+      {t:'O',x:.49,y:.35,z:.82},{t:'O',x:.74,y:.39,z:.28},{t:'O',x:.01,y:.65,z:.68},{t:'O',x:.24,y:.61,z:.22},
+      {t:'O',x:.13,y:.47,z:.53},{t:'O',x:.38,y:.53,z:.97},{t:'O',x:.63,y:.47,z:.47},{t:'O',x:.88,y:.53,z:.03},
+      {t:'O',x:.13,y:.97,z:.03},{t:'O',x:.38,y:.03,z:.47},{t:'O',x:.63,y:.97,z:.53},{t:'O',x:.88,y:.03,z:.97},
+    ],
+    sx:1.8,sy:1.8,sz:1.4
+  }
+};
+
+let phase = 'anatase';
+let rotX = 0.4, rotY = 0.5;
+let drag = false, mx = 0, my = 0;
+let animId;
+
+function rot(x,y,z,rx,ry){
+  let y1 = y*Math.cos(rx) - z*Math.sin(rx);
+  let z1 = y*Math.sin(rx) + z*Math.cos(rx);
+  let x2 = x*Math.cos(ry) + z1*Math.sin(ry);
+  let z2 = -x*Math.sin(ry) + z1*Math.cos(ry);
+  return [x2,y1,z2];
+}
+
+function project(x,y,z){
+  const fov = 600;
+  const dz = 6;
+  const scale = fov/(dz+z);
+  return [canvas.width/2 + x*scale, canvas.height/2 - y*scale, scale];
+}
+
+function draw(){
+  const d = PHASES[phase];
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = '#0f0f1a';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  const S = 100;
+  const atoms = d.atoms.map(a=>{
+    const ax = (a.x-.5)*d.sx, ay = (a.y-.5)*d.sy, az = (a.z-.5)*d.sz;
+    const [rx,ry,rz] = rot(ax,ay,az,rotX,rotY);
+    const [px,py,ps] = project(rx,ry,rz);
+    return {t:a.t, sx:px, sy:py, ps:ps, rz:rz, ox:ax, oy:ay, oz:az};
+  });
+
+  // draw bonds
+  const tiAtoms = atoms.filter(a=>a.t==='Ti');
+  const oAtoms  = atoms.filter(a=>a.t==='O');
+  tiAtoms.forEach(ti=>{
+    oAtoms.forEach(o=>{
+      const dx=(ti.ox-o.ox)*d.sx, dy=(ti.oy-o.oy)*d.sy, dz=(ti.oz-o.oz)*d.sz;
+      const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if(dist<1.05){
+        const alpha = Math.min(1, Math.max(0.15, (ti.rz+o.rz)/4+0.5));
+        ctx.beginPath();
+        ctx.moveTo(ti.sx,ti.sy);
+        ctx.lineTo(o.sx,o.sy);
+        ctx.strokeStyle=`rgba(150,180,220,${alpha*0.7})`;
+        ctx.lineWidth=1.5;
+        ctx.stroke();
+      }
+    });
+  });
+
+  // draw atoms sorted by depth
+  atoms.sort((a,b)=>a.rz-b.rz);
+  atoms.forEach(a=>{
+    const isTi = a.t==='Ti';
+    const r = isTi ? 12 : 8;
+    const depth = Math.min(1, Math.max(0.3, (a.rz+2)/4));
+    const grad = ctx.createRadialGradient(a.sx-r*.3,a.sy-r*.3,r*.1,a.sx,a.sy,r);
+    if(isTi){
+      grad.addColorStop(0,'rgba(180,220,255,'+depth+')');
+      grad.addColorStop(0.5,'rgba(100,175,245,'+depth+')');
+      grad.addColorStop(1,'rgba(30,80,160,'+depth+')');
+    } else {
+      grad.addColorStop(0,'rgba(255,180,150,'+depth+')');
+      grad.addColorStop(0.5,'rgba(245,110,90,'+depth+')');
+      grad.addColorStop(1,'rgba(160,30,20,'+depth+')');
+    }
+    ctx.beginPath();
+    ctx.arc(a.sx,a.sy,r,0,Math.PI*2);
+    ctx.fillStyle=grad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(a.sx,a.sy,r,0,Math.PI*2);
+    ctx.strokeStyle=isTi?'rgba(100,160,255,0.5)':'rgba(255,100,80,0.5)';
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  });
+
+  // draw cell box
+  const corners = [[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
+  const edges = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+  const pts = corners.map(c=>{
+    const ax=(c[0]-.5)*d.sx,ay=(c[1]-.5)*d.sy,az=(c[2]-.5)*d.sz;
+    const [rx,ry,rz]=rot(ax,ay,az,rotX,rotY);
+    const [px,py]=project(rx,ry,rz);
+    return [px,py];
+  });
+  ctx.strokeStyle='rgba(80,120,200,0.35)';
+  ctx.lineWidth=1;
+  edges.forEach(([a,b])=>{
+    ctx.beginPath();ctx.moveTo(pts[a][0],pts[a][1]);ctx.lineTo(pts[b][0],pts[b][1]);ctx.stroke();
+  });
+}
+
+let autoRot = true;
+function loop(){
+  if(autoRot) rotY += 0.008;
+  draw();
+  animId = requestAnimationFrame(loop);
+}
+
+canvas.addEventListener('mousedown',e=>{drag=true;autoRot=false;mx=e.clientX;my=e.clientY;});
+window.addEventListener('mouseup',()=>{drag=false;});
+canvas.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  rotY+=(e.clientX-mx)*.012;
+  rotX+=(e.clientY-my)*.012;
+  mx=e.clientX;my=e.clientY;draw();
+});
+canvas.addEventListener('touchstart',e=>{drag=true;autoRot=false;mx=e.touches[0].clientX;my=e.touches[0].clientY;},{passive:true});
+window.addEventListener('touchend',()=>drag=false);
+canvas.addEventListener('touchmove',e=>{
+  if(!drag)return;
+  rotY+=(e.touches[0].clientX-mx)*.014;
+  rotX+=(e.touches[0].clientY-my)*.014;
+  mx=e.touches[0].clientX;my=e.touches[0].clientY;draw();
+},{passive:true});
+
+function setPhase(key,btn){
+  phase=key;
+  document.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const d=PHASES[key];
+  document.getElementById('info').innerHTML=`
+    <div class="ic"><div class="il">Système</div><div class="iv">${d.sys}</div></div>
+    <div class="ic"><div class="il">Groupe d'espace</div><div class="iv">${d.grp}</div></div>
+    <div class="ic"><div class="il">Gap</div><div class="iv">${d.gap}</div></div>
+    <div class="ic"><div class="il">BC vs ENH</div><div class="iv">${d.bc}</div></div>`;
+}
+
+setPhase('anatase',document.querySelector('button.on'));
+loop();
+</script>
+</body>
+</html>
